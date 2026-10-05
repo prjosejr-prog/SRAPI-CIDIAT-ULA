@@ -9,7 +9,7 @@ import plotly.express as px
 from datetime import datetime
 
 st.set_page_config(
-    page_title="Sistema CIDINT ULA",
+    page_title="Sistema CIDIAT ULA",
     page_icon="📚",
     layout="wide"
 )
