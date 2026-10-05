@@ -9,7 +9,7 @@ import plotly.express as px
 from datetime import datetime
 
 st.set_page_config(
-    page_title="Sistema CIDIAT ULA",
+    page_title="Sistema CIDINT ULA",
     page_icon="📚",
     layout="wide"
 )
@@ -20,9 +20,7 @@ def init_db():
     cursor.execute("CREATE TABLE IF NOT EXISTS usuarios (cedula TEXT PRIMARY KEY, nombre TEXT, password TEXT, rol TEXT)")
     cursor.execute("CREATE TABLE IF NOT EXISTS actividades (id INTEGER PRIMARY KEY AUTOINCREMENT, cedula TEXT, trimestre TEXT, año INTEGER, categoria TEXT, detalles TEXT, archivo TEXT)")
     
-    # Usuario Administrador por defecto
     cursor.execute("INSERT OR IGNORE INTO usuarios VALUES ('admin', 'Administrador General', '1234', 'Administrador')")
-    # Usuario Profesor de prueba por defecto
     cursor.execute("INSERT OR IGNORE INTO usuarios VALUES ('12345678', 'José Antonio Pérez', '1234', 'Profesor')")
     conn.commit()
     conn.close()
@@ -57,7 +55,7 @@ if not st.session_state["logged_in"]:
     _, cm, _ = st.columns([1, 1, 1])
     with cm:
         st.subheader("Iniciar Sesión")
-        ced = st.text_input("Cédula de Identidad")
+        ced = st.text_input("Cédula de Identidad o Usuario")
         pas = st.text_input("Contraseña", type="password")
 
         if st.button("Ingresar al Sistema", use_container_width=True):
@@ -74,7 +72,7 @@ if not st.session_state["logged_in"]:
                 st.session_state["cedula"] = ced
                 st.rerun()
             else:
-                st.error("Cédula o contraseña incorrecta.")
+                st.error("Usuario/Cédula o contraseña incorrecta.")
 
     st.write("")
     st.write("")
@@ -97,7 +95,7 @@ else:
         titulo_modulo = "Módulo de Carga de Actividades (Profesor)" if st.session_state["rol"] == "Profesor" else "Módulo de Carga de Actividades (Investigador)"
         st.title(titulo_modulo)
         
-        tab_registro, tab_historial, tab_perfil = st.tabs(["📝 Registrar Actividad", "🗂️ Mi Historial", "🔑 Mi Perfil y Contraseña"])
+        tab_registro, tab_historial, tab_stats, tab_perfil = st.tabs(["📝 Registrar Actividad", "🗂️️ Mi Historial", "📊 Mis Estadísticas", "🔑 Mi Perfil y Contraseña"])
         
         with tab_registro:
             if "lista_temporal" not in st.session_state:
@@ -212,9 +210,27 @@ else:
             else:
                 st.info("Aún no tienes actividades registradas en la base de datos.")
 
+        with tab_stats:
+            st.subheader("Gráficos de Resumen Personal")
+            conn = sqlite3.connect("sistema_actividades.db")
+            df_stats = pd.read_sql_query("SELECT trimestre AS Trimestre, año AS Año, categoria AS Categoría FROM actividades WHERE cedula = ?", conn, params=(st.session_state["cedula"],))
+            conn.close()
+            
+            if not df_stats.empty:
+                col_st1, col_st2 = st.columns(2)
+                with col_st1:
+                    fig_mi_cat = px.pie(df_stats, names="Categoría", title="Mis Actividades por Categoría", hole=0.4)
+                    st.plotly_chart(fig_mi_cat, use_container_width=True)
+                with col_st2:
+                    df_mi_trim = df_stats.groupby("Trimestre").size().reset_index(name="Cantidad")
+                    fig_mi_trim = px.bar(df_mi_trim, x="Trimestre", y="Cantidad", title="Mis Actividades por Trimestre", text_auto=True)
+                    st.plotly_chart(fig_mi_trim, use_container_width=True)
+            else:
+                st.info("Aún no hay suficientes actividades registradas para mostrar estadísticas gráficas.")
+
         with tab_perfil:
             st.subheader("Cambiar Contraseña")
-            with st.form("form_password"):
+            with st.form("form_password_prof"):
                 pass_actual = st.text_input("Contraseña Actual", type="password")
                 pass_nueva = st.text_input("Nueva Contraseña", type="password")
                 pass_confirmar = st.text_input("Confirmar Nueva Contraseña", type="password")
@@ -225,19 +241,23 @@ else:
                     conn = sqlite3.connect("sistema_actividades.db")
                     cur = conn.cursor()
                     cur.execute("SELECT password FROM usuarios WHERE cedula = ?", (st.session_state["cedula"],))
-                    pwd_db = cur.fetchone()[0]
+                    resultado_pwd = cur.fetchone()
                     
-                    if pass_actual != pwd_db:
-                        st.error("La contraseña actual es incorrecta.")
-                    elif pass_nueva != pass_confirmar:
-                        st.error("Las nuevas contraseñas no coinciden.")
-                    elif len(pass_nueva) < 4:
-                        st.warning("La contraseña debe tener al menos 4 caracteres.")
+                    if resultado_pwd:
+                        pwd_db = resultado_pwd[0]
+                        if pass_actual != pwd_db:
+                            st.error("La contraseña actual es incorrecta.")
+                        elif pass_nueva != pass_confirmar:
+                            st.error("Las nuevas contraseñas no coinciden.")
+                        elif len(pass_nueva) < 4:
+                            st.warning("La contraseña debe tener al menos 4 caracteres.")
+                        else:
+                            cur.execute("UPDATE usuarios SET password = ? WHERE cedula = ?", (pass_nueva, st.session_state["cedula"]))
+                            conn.commit()
+                            conn.close()
+                            st.success("¡Contraseña actualizada exitosamente!")
                     else:
-                        cur.execute("UPDATE usuarios SET password = ? WHERE cedula = ?", (pass_nueva, st.session_state["cedula"]))
-                        conn.commit()
-                        conn.close()
-                        st.success("¡Contraseña actualizada exitosamente!")
+                        st.error("No se encontró el usuario en la base de datos.")
 
     # ==========================================
     # MÓDULO DEL ADMINISTRADOR
@@ -245,7 +265,7 @@ else:
     elif st.session_state["rol"] == "Administrador":
         st.title("Panel Gerencial e Institucional")
         
-        tab_dashboard, tab_usuarios = st.tabs(["📊 Dashboard y Reportes", "👥 Gestión de Usuarios"])
+        tab_dashboard, tab_usuarios, tab_perfil_admin = st.tabs(["📊 Dashboard y Reportes", "👥 Gestión de Usuarios", "🔑 Mi Perfil y Contraseña"])
         
         with tab_dashboard:
             st.write("Vista global de actividades de la institución y exportación de reportes.")
@@ -405,6 +425,37 @@ else:
             df_users = pd.read_sql_query("SELECT cedula AS Cédula, nombre AS Nombre, rol AS Rol FROM usuarios", conn)
             conn.close()
             st.dataframe(df_users, use_container_width=True)
+
+        with tab_perfil_admin:
+            st.subheader("Cambiar Contraseña de Administrador")
+            with st.form("form_password_admin"):
+                pass_actual_a = st.text_input("Contraseña Actual", type="password")
+                pass_nueva_a = st.text_input("Nueva Contraseña", type="password")
+                pass_confirmar_a = st.text_input("Confirmar Nueva Contraseña", type="password")
+                
+                btn_cambiar_a = st.form_submit_button("Actualizar Contraseña")
+                
+                if btn_cambiar_a:
+                    conn = sqlite3.connect("sistema_actividades.db")
+                    cur = conn.cursor()
+                    cur.execute("SELECT password FROM usuarios WHERE cedula = ?", (st.session_state["cedula"],))
+                    resultado_pwd_a = cur.fetchone()
+                    
+                    if resultado_pwd_a:
+                        pwd_db_a = resultado_pwd_a[0]
+                        if pass_actual_a != pwd_db_a:
+                            st.error("La contraseña actual es incorrecta.")
+                        elif pass_nueva_a != pass_confirmar_a:
+                            st.error("Las nuevas contraseñas no coinciden.")
+                        elif len(pass_nueva_a) < 4:
+                            st.warning("La contraseña debe tener al menos 4 caracteres.")
+                        else:
+                            cur.execute("UPDATE usuarios SET password = ? WHERE cedula = ?", (pass_nueva_a, st.session_state["cedula"]))
+                            conn.commit()
+                            conn.close()
+                            st.success("¡Contraseña de administrador actualizada exitosamente!")
+                    else:
+                        st.error("No se encontró el usuario en la base de datos.")
 
     st.sidebar.divider()
     st.sidebar.caption("Desarrollado por: **Ing. José Antonio Pérez Bracho**")
